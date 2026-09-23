@@ -150,15 +150,9 @@ class GpuViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
-            val clockStr = runCatching {
-                val file = java.io.File("/sys/class/kgsl/kgsl-3d0/gpuclk")
-                if (file.exists()) "${file.readText().trim().toLong() / 1000000} МГц" else "Нет данных"
-            }.getOrDefault("Нет данных")
+            val clockStr = readGpuClock()
 
-            val tempStr = runCatching {
-                val file = java.io.File("/sys/class/thermal/thermal_zone12/temp") // зона Adreno GPU на Qualcomm
-                if (file.exists()) "${file.readText().trim().toDouble() / 1000} °C" else "Нет данных"
-            }.getOrDefault("Нет данных")
+            val tempStr = readGpuTemperature()
 
             GpuFullInfo(
                 renderer,
@@ -182,5 +176,46 @@ class GpuViewModel(application: Application) : AndroidViewModel(application) {
             )
 
         }.getOrNull()
+    }
+
+    private fun readGpuClock(): String {
+        val candidates = mutableListOf(
+            java.io.File("/sys/class/kgsl/kgsl-3d0/gpuclk"),
+            java.io.File("/sys/class/kgsl/kgsl-3d0/devfreq/cur_freq")
+        )
+        java.io.File("/sys/class/devfreq").listFiles()?.forEach { node ->
+            val name = node.name.lowercase()
+            if (listOf("gpu", "kgsl", "mali", "panfrost", "3d").any(name::contains)) {
+                candidates += java.io.File(node, "cur_freq")
+                candidates += java.io.File(node, "current_frequency")
+            }
+        }
+        val raw = candidates.asSequence().mapNotNull { file ->
+            runCatching { if (file.isFile) file.readText().trim().toLongOrNull() else null }.getOrNull()
+        }.firstOrNull() ?: readRootGpuClock(candidates) ?: return "Нет данных"
+        return if (raw >= 1_000_000) "${raw / 1_000_000} МГц" else "${raw / 1_000} МГц"
+    }
+
+    private fun readRootGpuClock(candidates: List<java.io.File>): Long? {
+        val paths = candidates.joinToString(" ") { it.path }
+        return runCatching {
+            val command = """for f in $paths; do [ -r ${'$'}f ] && cat ${'$'}f && exit; done; find /sys/class/devfreq -type f \( -name cur_freq -o -name current_frequency \) -print -quit | while read f; do cat ${'$'}f; done"""
+            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", command))
+            process.inputStream.bufferedReader().readText().trim().toLongOrNull()
+        }.getOrNull()
+    }
+
+    private fun readGpuTemperature(): String {
+        val base = java.io.File("/sys/class/thermal")
+        val raw = base.listFiles()?.asSequence()
+            ?.filter { it.name.startsWith("thermal_zone") }
+            ?.filter { zone ->
+                val type = runCatching { java.io.File(zone, "type").readText().trim().lowercase() }.getOrDefault("")
+                type.contains("gpu") || type.contains("kgsl") || type.contains("mali")
+            }
+            ?.mapNotNull { zone -> runCatching { java.io.File(zone, "temp").readText().trim().toDoubleOrNull() }.getOrNull() }
+            ?.firstOrNull()
+            ?: return "Нет данных"
+        return "${String.format(java.util.Locale.ENGLISH, "%.1f", raw / 1000.0)} °C"
     }
 }

@@ -47,10 +47,33 @@ private var batteryPowerWatts by mutableStateOf("0 Вт")
 data class AppBatteryInfo(val appName: String, val pid: Int, val currentCurrent: Int, val consumedLast15Min: Double, val avgConsumption: Double)
 private var topBatteryApps by mutableStateOf<List<AppBatteryInfo>>(emptyList())
 
+private fun readUevent(supply: File): Map<String, String> = readSysfsFile(File(supply, "uevent").path)
+    ?.lineSequence()
+    ?.mapNotNull { line ->
+        val separator = line.indexOf('=')
+        if (separator > 0) line.substring(0, separator) to line.substring(separator + 1) else null
+    }
+    ?.toMap()
+    .orEmpty()
+
+private fun readRootPowerSupplyUevent(): Map<String, String> = runCatching {
+    val command = "for f in /sys/class/power_supply/*/uevent; do cat \"${'$'}f\" 2>/dev/null; done"
+    val process = Runtime.getRuntime().exec(arrayOf("su", "-c", command))
+    process.inputStream.bufferedReader().readLines().mapNotNull { line ->
+        val separator = line.indexOf('=')
+        if (separator > 0) line.substring(0, separator) to line.substring(separator + 1) else null
+    }.toMap()
+}.getOrDefault(emptyMap())
+
 fun readSysfsFile(path: String): String? {
-    return runCatching {
+    val direct = runCatching {
         val file = File(path)
         if (file.exists()) file.readText().trim() else null
+    }.getOrNull()
+    if (!direct.isNullOrBlank()) return direct
+    return runCatching {
+        val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "cat '$path'"))
+        process.inputStream.bufferedReader().readText().trim().ifBlank { null }
     }.getOrNull()
 }
 
@@ -78,7 +101,12 @@ suspend fun updateBatteryStatsOnly(context: Context) {
     }
 
     val bm = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
-    batteryCurrentNow = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW) / 1000
+    val rawCurrent = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW) / 1000
+    batteryCurrentNow = when (batteryStatus?.getIntExtra(BatteryManager.EXTRA_STATUS, -1)) {
+        BatteryManager.BATTERY_STATUS_CHARGING -> abs(rawCurrent)
+        BatteryManager.BATTERY_STATUS_DISCHARGING -> -abs(rawCurrent)
+        else -> rawCurrent
+    }
 
     val watts = (batteryVoltage.toDouble() / 1000.0) * (batteryCurrentNow.toDouble() / 1000.0)
     batteryPowerWatts = String.format("%.2f Вт", abs(watts))
@@ -89,11 +117,27 @@ suspend fun updateBatteryStatsOnly(context: Context) {
 }
 
 fun calculateTopBatteryApps(context: Context) {
+    // Ёмкость не зависит от наличия тока. Раньше ранний return скрывал её на
+    // устройствах, где ток недоступен или равен нулю.
+    val powerSupplies = File("/sys/class/power_supply").listFiles()?.toList().orEmpty()
+    val rootUevent = readRootPowerSupplyUevent()
+    val fullCharge = readFirstCapacity(powerSupplies, rootUevent, "charge_full", "energy_full", "charge_counter", "energy_counter")
+    if (fullCharge != null) batteryCapacityCharge = formatCapacity(fullCharge.first, fullCharge.second)
+
+    val designCharge = readFirstCapacity(powerSupplies, rootUevent, "charge_full_design", "energy_full_design")
+    if (designCharge != null) batteryCapacityDesign = formatCapacity(designCharge.first, designCharge.second)
+
+    val cycles = readFirstSysfs(powerSupplies, rootUevent, "cycle_count")
+    if (cycles != null) batteryCycleCount = cycles
+
     val pm = context.packageManager
     val allApps = pm.getInstalledApplications(0)
     val appList = mutableListOf<AppBatteryInfo>()
     val totalCurrentAbs = abs(batteryCurrentNow)
-    if (totalCurrentAbs <= 0) return
+    if (totalCurrentAbs <= 0) {
+        topBatteryApps = emptyList()
+        return
+    }
 
     var count = 0
     for (app in allApps) {
@@ -109,19 +153,31 @@ fun calculateTopBatteryApps(context: Context) {
     }
     topBatteryApps = appList.sortedByDescending { it.currentCurrent }
 
-    // Адаптивные пути чтения для Xiaomi HyperOS / POCO F5
-    val cycles = readSysfsFile("/sys/class/power_supply/battery/cycle_count")
-        ?: readSysfsFile("/sys/class/power_supply/bms/cycle_count")
-    if (cycles != null) batteryCycleCount = cycles
-
-    val fullCharge = readSysfsFile("/sys/class/power_supply/battery/charge_full")?.toLongOrNull()
-        ?: readSysfsFile("/sys/class/power_supply/bms/charge_full")?.toLongOrNull()
-    if (fullCharge != null) batteryCapacityCharge = "${fullCharge / 1000} мАч"
-
-    val designCharge = readSysfsFile("/sys/class/power_supply/battery/charge_full_design")?.toLongOrNull()
-        ?: readSysfsFile("/sys/class/power_supply/bms/charge_full_design")?.toLongOrNull()
-    batteryCapacityDesign = "${designCharge?.div(1000)} мАч"
 }
+
+private fun readFirstCapacity(supplies: List<File>, rootUevent: Map<String, String>, vararg names: String): Pair<Long, Boolean>? = supplies.asSequence()
+    .flatMap { supply ->
+        val uevent = readUevent(supply)
+        names.asSequence().map { name ->
+            val key = "POWER_SUPPLY_${name.uppercase()}"
+            val file = File(supply, name)
+            val value = if (file.isFile) readSysfsFile(file.path) else uevent[key]
+            value?.toLongOrNull()?.let { it to (name.startsWith("energy_") || name == "energy_counter") }
+        }
+    }
+    .filterNotNull()
+    .plus(names.asSequence().mapNotNull { name ->
+        rootUevent["POWER_SUPPLY_${name.uppercase()}"]?.toLongOrNull()?.let { it to (name.startsWith("energy_") || name == "energy_counter") }
+    })
+    .firstOrNull()
+
+private fun readFirstSysfs(supplies: List<File>, rootUevent: Map<String, String>, name: String): String? = supplies.asSequence()
+    .mapNotNull { supply -> File(supply, name).takeIf { it.isFile }?.let { readSysfsFile(it.path) } ?: readUevent(supply)["POWER_SUPPLY_${name.uppercase()}"] }
+    .plus(rootUevent["POWER_SUPPLY_${name.uppercase()}"].orEmpty().takeIf { it.isNotEmpty() })
+    .firstOrNull()
+
+private fun formatCapacity(value: Long, energy: Boolean): String =
+    if (energy) "${value / 1000} мВт·ч" else "${value / 1000} мАч"
 
 @Composable
 fun Battery(modifier: Modifier = Modifier) {

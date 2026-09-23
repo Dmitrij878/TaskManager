@@ -36,10 +36,16 @@ suspend fun CoroutineScope.graphUpdater(activity: MainActivity){
                             updateGpuGraph(json.optInt("usage"))
                         }
                         "SWAP_USAGE" -> {
-                            val used = json.optLong("used", 0L)
-                            val total = json.optLong("total", 1L)
-                            val percentage = (used.toFloat() / total.toFloat()) * 100
-                            updateRamAndSwapGraph(percentage.toInt(), used, total)
+                            val zramUsed = json.optLong("zramUsed", 0L)
+                            val zramTotal = json.optLong("zramTotal", 0L)
+                            val swapUsed = json.optLong("swapUsed", 0L)
+                            val swapTotal = json.optLong("swapTotal", 0L)
+                            val zramPercentage = if (zramTotal > 0) zramUsed * 100f / zramTotal else 0f
+                            val swapPercentage = if (swapTotal > 0) swapUsed * 100f / swapTotal else 0f
+                            updateRamAndSwapGraph(
+                                zramPercentage.toInt(), zramUsed, zramTotal,
+                                swapPercentage.toInt(), swapUsed, swapTotal
+                            )
                         }
                     }
                 }

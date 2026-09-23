@@ -28,6 +28,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import com.rk.commons.charts.GraphDataHandler
 import com.rk.commons.charts.UsageChart
 import com.rk.commons.ui.InfoCard
@@ -41,8 +43,9 @@ import com.rk.commons.strings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.rk.taskmanager.ProcessViewModel
+import java.io.File
 
-val ramGraphHandler = GraphDataHandler(seriesCount = 2)
+val ramGraphHandler = GraphDataHandler(seriesCount = 3)
 
 var RamUsage by mutableIntStateOf(0)
 var usedRam by mutableLongStateOf(0L)
@@ -51,6 +54,9 @@ var totalRam by mutableLongStateOf(0L)
 var SwapUsage by mutableIntStateOf(0)
 var usedSwap by mutableLongStateOf(0L)
 var totalSwap by mutableLongStateOf(0L)
+var ZramUsage by mutableIntStateOf(0)
+var usedZram by mutableLongStateOf(0L)
+var totalZram by mutableLongStateOf(0L)
 
 suspend fun getSystemRamUsage(context: Context): Int = withContext(Dispatchers.IO) {
     val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
@@ -66,15 +72,25 @@ suspend fun getSystemRamUsage(context: Context): Int = withContext(Dispatchers.I
         .coerceIn(0, 100)
 }
 
-suspend fun updateRamAndSwapGraph(usagePercent: Int, usageBytes: Long, totalBytes: Long) {
+suspend fun updateRamAndSwapGraph(
+    zramUsagePercent: Int,
+    zramUsageBytes: Long,
+    zramTotalBytes: Long,
+    swapUsagePercent: Int,
+    swapUsageBytes: Long,
+    swapTotalBytes: Long
+) {
     val ramUsage = getSystemRamUsage(TaskManager.requireContext())
 
     RamUsage = ramUsage
-    usedSwap = usageBytes
-    totalSwap = totalBytes
-    SwapUsage = usagePercent
+    usedZram = zramUsageBytes
+    totalZram = zramTotalBytes
+    ZramUsage = zramUsagePercent
+    usedSwap = swapUsageBytes
+    totalSwap = swapTotalBytes
+    SwapUsage = swapUsagePercent
 
-    ramGraphHandler.update(ramUsage, usagePercent) {
+    ramGraphHandler.update(ramUsage, zramUsagePercent, swapUsagePercent) {
         selectedscreen.intValue == 0 && navControllerRef.get()?.currentDestination?.route == SettingsRoutes.Home.route
     }
 }
@@ -96,23 +112,77 @@ fun runSuCommand(cmd: String): String {
     }.getOrElse { "Ошибка: Root-доступ не предоставлен" }
 }
 
+fun ensureF2fsIo(): String {
+    return runSuCommand("""
+                target=/data/local/tmp/f2fs_io
+                if [ ! -x ${'$'}target ]; then
+                    for source in /data/local/tmp/f2fs_io /data/data/com.rk.taskmanager/files/f2fs_io /data/user/0/com.rk.taskmanager/files/f2fs_io; do
+                        if [ -f ${'$'}source ]; then cp ${'$'}source ${'$'}target; chmod 755 ${'$'}target; break; fi
+          done
+        fi
+                if [ -x ${'$'}target ]; then echo ${'$'}target; else echo unavailable; fi
+    """.trimIndent())
+}
+
+fun prepareF2fsIo(context: Context): String {
+    runCatching {
+        val bundled = File(context.filesDir, "f2fs_io")
+        if (!bundled.exists()) {
+            context.assets.open("f2fs_io").use { input ->
+                bundled.outputStream().use { output -> input.copyTo(output) }
+            }
+        }
+        bundled.setExecutable(true)
+    }
+    return ensureF2fsIo()
+}
+
+private fun createSwapFile(sizeMb: Long): String {
+    val sizeBytes = sizeMb * 1024L * 1024L
+    val f2fs = ensureF2fsIo()
+    val allocate = if (f2fs.startsWith("/data/local/tmp/f2fs_io")) {
+        "$f2fs fallocate 0 $sizeBytes /data/swapfile"
+    } else {
+        "dd if=/dev/zero of=/data/swapfile bs=1M count=$sizeMb"
+    }
+    return runSuCommand("swapoff /data/swapfile 2>/dev/null; rm -f /data/swapfile; $allocate && chmod 600 /data/swapfile && mkswap /data/swapfile && swapon /data/swapfile")
+}
+
+private fun readSwapFileStatus(): String {
+    val result = runSuCommand("cat /proc/swaps; if [ -f /data/swapfile ]; then stat -c '%s' /data/swapfile; else echo missing; fi")
+    if (result.startsWith("Ошибка")) return "Требуется Root"
+    val fileSize = result.lines().lastOrNull()?.trim()
+    val active = result.lines().any { it.startsWith("/data/swapfile") }
+    return when {
+        fileSize == "missing" -> "Файл не создан"
+        fileSize?.toLongOrNull() != null -> {
+            val sizeMb = fileSize.toLong() / 1024 / 1024
+            if (active) "Включен · $sizeMb МБ" else "Создан, но отключен · $sizeMb МБ"
+        }
+        else -> "Состояние неизвестно"
+    }
+}
+
 @Composable
 fun RAM(modifier: Modifier = Modifier, viewModel: ProcessViewModel) {
     var swappinessValue by remember { mutableStateOf("Чтение...") }
     var swappinessInput by remember { mutableStateOf("60") }
-    var zramSizeInput by remember { mutableStateOf("4") } // Размер ZRAM в ГБ по умолчанию
+    var zramSizeInput by remember { mutableStateOf("4096") }
+    var swapFileSizeInput by remember { mutableStateOf("1024") }
+    var swapFileStatus by remember { mutableStateOf("Чтение...") }
     var rootLogStatus by remember { mutableStateOf("Ожидание действий") }
 
     // Асинхронно считываем текущий swappiness через Root при открытии вкладки
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
             val result = runSuCommand("cat /proc/sys/vm/swappiness")
-            if (result.startsWith("Ошибка")) {
+            if (result.startsWith("Ошибка") || result.toIntOrNull() == null) {
                 swappinessValue = "Требуется Root"
             } else {
                 swappinessValue = result
                 swappinessInput = result
             }
+            swapFileStatus = readSwapFileStatus()
         }
     }
 
@@ -122,7 +192,7 @@ fun RAM(modifier: Modifier = Modifier, viewModel: ProcessViewModel) {
 
         UsageChart(
             modelProducer = ramGraphHandler.modelProducer,
-            lineColors = listOf(ramColor, swapColor),
+            lineColors = listOf(ramColor, MaterialTheme.colorScheme.secondary, swapColor),
             modifier = modifier
         )
 
@@ -147,6 +217,11 @@ fun RAM(modifier: Modifier = Modifier, viewModel: ProcessViewModel) {
                 color = swapColor,
                 style = MaterialTheme.typography.bodyMedium
             )
+            Text(
+                "ZRAM: ${FormatUtils.formatBytes(usedZram)} / ${FormatUtils.formatBytes(totalZram)} ($ZramUsage%)",
+                color = swapColor,
+                style = MaterialTheme.typography.bodyMedium
+            )
         }
         Spacer(modifier = Modifier.padding(vertical = 8.dp))
 
@@ -159,7 +234,7 @@ fun RAM(modifier: Modifier = Modifier, viewModel: ProcessViewModel) {
             HorizontalDivider()
 
             // ИНТЕРФЕЙС КАРТОЧКИ СИСТЕМНОГО СТАТУСА SWAP
-            Text("Параметры ядра подкачки:", style = MaterialTheme.typography.titleSmall, color = ramColor)
+            Text("Параметры подкачки и ZRAM:", style = MaterialTheme.typography.titleSmall, color = ramColor)
             InfoCard {
                 Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     InfoItem(label = "Интенсивность подкачки (Swappiness)", value = swappinessValue, highlighted = swappinessValue != "Требуется Root")
@@ -176,19 +251,22 @@ fun RAM(modifier: Modifier = Modifier, viewModel: ProcessViewModel) {
             OutlinedTextField(
                 value = swappinessInput,
                 onValueChange = { input ->
-                    // Проверяем диапазон от 10 до 100 или пустое значение для ввода
-                    if (input.isEmpty() || (input.toIntOrNull() != null && input.toInt() in 10..100)) {
+                    if (input.matches(Regex("\\d{0,3}")) && (input.isEmpty() || input.toInt() in 0..200)) {
                         swappinessInput = input
                     }
                 },
-                label = { Text("Интенсивность Swappiness (10-100%)") },
+                label = { Text("Интенсивность Swappiness (0-200)") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth()
             )
             Button(
                 onClick = {
                     if (swappinessInput.isNotEmpty()) {
-                        rootLogStatus = runSuCommand("echo $swappinessInput > /proc/sys/vm/swappiness")
-                        if (!rootLogStatus.startsWith("Ошибка")) swappinessValue = swappinessInput
+                        rootLogStatus = runSuCommand("echo $swappinessInput > /proc/sys/vm/swappiness && cat /proc/sys/vm/swappiness")
+                        if (!rootLogStatus.startsWith("Ошибка")) {
+                            swappinessValue = rootLogStatus.lines().last().trim()
+                            swappinessInput = swappinessValue
+                        }
                     }
                 },
                 modifier = Modifier.fillMaxWidth()
@@ -201,15 +279,16 @@ fun RAM(modifier: Modifier = Modifier, viewModel: ProcessViewModel) {
             // 2. Поле для принудительного ресайза ZRAM
             OutlinedTextField(
                 value = zramSizeInput,
-                onValueChange = { zramSizeInput = it.filter { char -> char.isDigit() } },
-                label = { Text("Принудительный размер ZRAM (в ГБ)") },
+                onValueChange = { input -> if (input.matches(Regex("\\d{0,3}"))) zramSizeInput = input },
+                label = { Text("Размер ZRAM (МБ)") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth()
             )
             Button(
                 onClick = {
-                    val gbValue = zramSizeInput.toLongOrNull()
-                    if (gbValue != null && gbValue > 0) {
-                        val sizeInBytes = gbValue * 1024L * 1024L * 1024L
+                    val sizeMb = zramSizeInput.toLongOrNull()
+                    if (sizeMb != null && sizeMb > 0) {
+                        val sizeInBytes = sizeMb * 1024L * 1024L
                         // Пошаговый Root-скрипт переразметки блочного устройства zram0 ядра Linux
                         rootLogStatus = runSuCommand("swapoff /dev/block/zram0 && echo 1 > /sys/block/zram0/reset && echo $sizeInBytes > /sys/block/zram0/disksize && mkswap /dev/block/zram0 && swapon /dev/block/zram0")
                     } else {
@@ -219,6 +298,66 @@ fun RAM(modifier: Modifier = Modifier, viewModel: ProcessViewModel) {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("Пересоздать и очистить ZRAM")
+            }
+
+            OutlinedTextField(
+                value = swapFileSizeInput,
+                onValueChange = { input ->
+                    if (input.matches(Regex("\\d{0,6}"))) swapFileSizeInput = input
+                },
+                label = { Text("Размер /data/swapfile (МБ)") },
+                supportingText = { Text("Файл создаётся непрерывным через f2fs_io, если доступен") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            InfoCard {
+                InfoItem(label = "Состояние /data/swapfile", value = swapFileStatus, highlighted = swapFileStatus.startsWith("Включен"))
+            }
+
+            Button(
+                onClick = {
+                    val sizeMb = swapFileSizeInput.toLongOrNull()
+                    rootLogStatus = if (sizeMb != null && sizeMb >= 128) {
+                        val result = createSwapFile(sizeMb)
+                        swapFileStatus = readSwapFileStatus()
+                        result
+                    } else "Минимальный размер: 128 МБ"
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Создать заново и включить swapfile")
+            }
+
+            Button(
+                onClick = {
+                    rootLogStatus = runSuCommand("swapon /data/swapfile")
+                    swapFileStatus = readSwapFileStatus()
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Включить существующий swapfile")
+            }
+
+            Button(
+                onClick = {
+                    rootLogStatus = runSuCommand("swapoff /data/swapfile")
+                    swapFileStatus = readSwapFileStatus()
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Отключить swapfile")
+            }
+
+            Button(
+                onClick = {
+                    rootLogStatus = runSuCommand("swapoff /data/swapfile 2>/dev/null; rm -f /data/swapfile")
+                    swapFileStatus = readSwapFileStatus()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Удалить swapfile")
             }
 
             Spacer(modifier = Modifier.padding(vertical = 4.dp))

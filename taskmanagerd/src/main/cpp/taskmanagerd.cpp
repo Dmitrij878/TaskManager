@@ -428,18 +428,29 @@ std::vector<Proc> collectProcs() {
     return procs;
 }
 
-void getSwapUsage(long &used, long &total) {
-    used = 0; total = 0;
-    std::ifstream meminfo("/proc/meminfo");
-    if (!meminfo.is_open()) return;
-    long totalKB = 0, freeKB = 0;
+void getSwapUsage(long &zramUsed, long &zramTotal, long &swapUsed, long &swapTotal) {
+    zramUsed = 0;
+    zramTotal = 0;
+    swapUsed = 0;
+    swapTotal = 0;
+
+    std::ifstream swaps("/proc/swaps");
+    if (!swaps.is_open()) return;
+
     std::string line;
-    while (std::getline(meminfo, line)) {
-        if (line.compare(0, 10, "SwapTotal:") == 0) totalKB = std::stol(line.substr(10));
-        else if (line.compare(0, 9, "SwapFree:") == 0) freeKB = std::stol(line.substr(9));
+    std::getline(swaps, line); // header
+    while (std::getline(swaps, line)) {
+        std::istringstream row(line);
+        std::string device, type;
+        long sizeKB = 0, usedKB = 0, priority = 0;
+        if (!(row >> device >> type >> sizeKB >> usedKB >> priority)) continue;
+
+        const bool isZram = device.find("zram") != std::string::npos;
+        long &used = isZram ? zramUsed : swapUsed;
+        long &total = isZram ? zramTotal : swapTotal;
+        used += usedKB * 1024;
+        total += sizeKB * 1024;
     }
-    used = (totalKB - freeKB) * 1024;
-    total = totalKB * 1024;
 }
 
 struct NetStat {
@@ -551,11 +562,13 @@ void processCommand(const std::string &received) {
             j_out["usage"] = calculateCpuUsage();
             send_json(j_out);
         } else if (cmd == "SWAP_PING") {
-            long used, total;
-            getSwapUsage(used, total);
+            long zramUsed, zramTotal, swapUsed, swapTotal;
+            getSwapUsage(zramUsed, zramTotal, swapUsed, swapTotal);
             j_out["type"] = "SWAP_USAGE";
-            j_out["used"] = used;
-            j_out["total"] = total;
+            j_out["zramUsed"] = zramUsed;
+            j_out["zramTotal"] = zramTotal;
+            j_out["swapUsed"] = swapUsed;
+            j_out["swapTotal"] = swapTotal;
             send_json(j_out);
         } else if (cmd == "GPU_PING") {
             j_out["type"] = "GPU_USAGE";

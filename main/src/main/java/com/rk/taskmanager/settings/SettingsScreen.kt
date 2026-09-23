@@ -11,7 +11,6 @@ import androidx.compose.material.icons.outlined.Android
 import androidx.compose.material.icons.outlined.ColorLens
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.MonitorHeart
-import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -37,7 +36,6 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
-import com.rk.bridge.bridge
 
 
 @OptIn(
@@ -94,18 +92,6 @@ fun SettingsScreen(modifier: Modifier = Modifier, navController: NavController) 
             },
             onNavigate = {
                 navController.navigate(SettingsRoutes.Themes.route)
-            },
-        )
-
-        PreferenceCategory(
-            label = stringResource(strings.pro_version),
-            description = stringResource(strings.pro_version_desc),
-            startWidget = {
-                Icon(imageVector = Icons.Outlined.Star,null, tint = MaterialTheme.colorScheme.primary)
-            },
-            enabled = bridge != null,
-            onNavigate = {
-                navController.navigate(SettingsRoutes.ProVersion.route)
             },
         )
 

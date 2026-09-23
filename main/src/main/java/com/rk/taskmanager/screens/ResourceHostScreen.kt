@@ -34,7 +34,6 @@ import com.rk.commons.strings
 
 import com.rk.taskmanager.screens.network.Network
 import com.rk.taskmanager.screens.battery.Battery
-import com.rk.taskmanager.screens.cpu.CpuCoresScreen
 import com.rk.taskmanager.screens.storage.StorageScreen
 import androidx.compose.material.icons.outlined.Storage // Берем стандартную аутлайн-иконку из SDK
 
@@ -92,14 +91,6 @@ private val tabs = listOf(
         icon = TabIcon.Vector(Icons.Outlined.BatteryChargingFull),
         content = { modifier, _, _ ->
             Battery(modifier = modifier)
-        }
-    ),
-
-    ResourceTab(
-        labelString = "Ядра",
-        icon = TabIcon.Vector(Icons.Filled.DeveloperBoard),
-        content = { modifier, _, _ ->
-            CpuCoresScreen(modifier = modifier)
         }
     ),
 

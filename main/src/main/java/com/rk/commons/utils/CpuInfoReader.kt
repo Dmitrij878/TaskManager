@@ -13,6 +13,7 @@ object CpuInfoReader {
         val cores: Int,
         val arch: String,
         val clusters: List<CpuCluster>,
+        val coreFrequencies: List<String>,
         val governor: String?
     )
 
@@ -93,12 +94,27 @@ object CpuInfoReader {
             )
         } ?: emptyList()
 
+        val coreFrequencies = cachedClustersTemplate
+            ?.flatMap { (_, cores) -> cores }
+            ?.sortedBy { it.name.removePrefix("cpu").toIntOrNull() ?: Int.MAX_VALUE }
+            ?.map { cpu ->
+                val value = readFile("${cpu.path}/cpufreq/scaling_cur_freq")?.toLongOrNull()
+                    ?: readFile("${cpu.path}/cpufreq/cpuinfo_cur_freq")?.toLongOrNull()
+                when {
+                    value == null -> "Офлайн"
+                    value >= 10_000 -> value.toFreqString()
+                    else -> "Офлайн"
+                }
+            }
+            ?: emptyList()
+
         return CpuInfo(
             soc = cachedSoc!!,
             abi = cachedAbi!!,
             cores = cachedCores!!,
             arch = cachedArch!!,
             clusters = clusterInfo,
+            coreFrequencies = coreFrequencies,
             governor = readFile("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor")
         )
     }

@@ -25,6 +25,4 @@ sealed class SettingsRoutes(val route: String) {
     data object Procs : SettingsRoutes("procs")
     data object Themes : SettingsRoutes("themes")
     data object About : SettingsRoutes("about")
-    data object ProVersion : SettingsRoutes("pro_version")
-
 }

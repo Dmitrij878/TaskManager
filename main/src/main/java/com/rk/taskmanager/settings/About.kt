@@ -44,11 +44,11 @@ fun About(modifier: Modifier = Modifier) {
     PreferenceLayout(label = stringResource(strings.about), backArrowVisible = true) {
         PreferenceGroup(heading = stringResource(strings.developer)) {
             SettingsToggle(
-                label = "RohitKushvaha01",
+                label = "Dmitrij878",
                 description = stringResource(strings.view_github),
                 default = false,
                 sideEffect = {
-                    val url = "https://github.com/RohitKushvaha01"
+                    val url = "https://github.com/Dmitrij878"
                     val intent = Intent(Intent.ACTION_VIEW).apply { data = Uri.parse(url) }
                     context.startActivity(intent)
                 },
@@ -57,7 +57,7 @@ fun About(modifier: Modifier = Modifier) {
                     AsyncImage(
                         model =
                             ImageRequest.Builder(LocalContext.current)
-                                .data("https://github.com/RohitKushvaha01.png")
+                                .data("https://github.com/Dmitrij878.png")
                                 .crossfade(true)
                                 .diskCachePolicy(CachePolicy.ENABLED)
                                 .memoryCachePolicy(CachePolicy.ENABLED)
@@ -104,6 +104,18 @@ fun About(modifier: Modifier = Modifier) {
             )
 
             PreferenceTemplate(
+                modifier = Modifier.combinedClickable(enabled = true, onClick = {}, onLongClick = {
+                    copyToClipboard(context, "cheese")
+                }),
+                title = {
+                    Text(text = "Кодовое имя", style = MaterialTheme.typography.titleMedium)
+                },
+                description = {
+                    Text(text = "cheese", style = MaterialTheme.typography.titleSmall)
+                },
+            )
+
+            PreferenceTemplate(
                 modifier =
                     Modifier.combinedClickable(
                         enabled = true,
@@ -137,25 +149,6 @@ fun About(modifier: Modifier = Modifier) {
                 },
             )
 
-
-            PreferenceTemplate(
-                modifier =
-                    Modifier.combinedClickable(
-                        enabled = true,
-                        onClick = {},
-                        onLongClick = { copyToClipboard(context,BuildConfig.GIT_SHORT_COMMIT_HASH) },
-                    ),
-                title = {
-                    Text(text = stringResource(strings.is_pro), style = MaterialTheme.typography.titleMedium)
-                },
-                description = {
-                    Text(text = if (bridge?.isPro()?.value == true){
-                        stringResource(strings.yes)
-                    }else{
-                        stringResource(strings.no)
-                    }, style = MaterialTheme.typography.titleSmall)
-                },
-            )
 
         }
     }

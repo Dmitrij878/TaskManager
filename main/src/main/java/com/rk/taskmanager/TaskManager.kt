@@ -7,6 +7,8 @@ import androidx.room.Room
 import com.rk.bridge.bridge
 import com.rk.taskmanager.data.AppDatabase
 import com.rk.taskmanager.settings.SettingsRoutes
+import com.rk.taskmanager.screens.ram.prepareF2fsIo
+import kotlinx.coroutines.launch
 
 class TaskManager : Application() {
     companion object {
@@ -48,7 +50,11 @@ class TaskManager : Application() {
         instance = this
         com.rk.commons.application = this
 
-        bridge?.initApp(this, launchPurchaseUiCallback = {navControllerRef.get()?.navigate(SettingsRoutes.ProVersion.route)}, onPurchaseCallback = {
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            runCatching { prepareF2fsIo(this@TaskManager) }
+        }
+
+        bridge?.initApp(this, launchPurchaseUiCallback = {}, onPurchaseCallback = {
             // Purchase successful, state is updated automatically via the proUnlocked MutableState in the bridge
             Toast.makeText(this@TaskManager, "Restart recommended", Toast.LENGTH_LONG).show()
         })

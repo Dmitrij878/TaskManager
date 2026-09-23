@@ -203,6 +203,40 @@ fun CPU(modifier: Modifier = Modifier, viewModel: ProcessViewModel) {
                     ClusterCard(cluster)
                 }
             }
+
+            if (cpuInfo?.coreFrequencies?.isNotEmpty() == true) {
+                HorizontalDivider()
+                InfoCard {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        SectionHeader("Частоты ядер")
+                        cpuInfo!!.coreFrequencies.forEachIndexed { index, frequency ->
+                            InfoItem(
+                                label = "Ядро #$index",
+                                value = frequency,
+                                highlighted = frequency != "Офлайн"
+                            )
+                        }
+                    }
+                }
+            }
+
+            HorizontalDivider()
+            InfoCard {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    SectionHeader("Процессы")
+                    val processes by viewModel.filteredProcesses.collectAsState()
+                    if (processes.isEmpty()) {
+                        InfoItem("Состояние", "Нет данных")
+                    } else {
+                        processes.take(10).forEach { process ->
+                            InfoItem(
+                                label = process.name,
+                                value = "CPU ${process.proc.cpuUsage.toInt()}% · RAM ${process.proc.memoryUsageKb / 1024} МБ"
+                            )
+                        }
+                    }
+                }
+            }
         }
 
         Spacer(modifier = Modifier.padding(vertical = 16.dp))

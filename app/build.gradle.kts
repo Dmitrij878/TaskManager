@@ -26,6 +26,7 @@ android {
     signingConfigs {
         create("release") {
             val isGITHUB_ACTION = System.getenv("GITHUB_ACTIONS") == "true"
+            val localKeystore = File("C:/Users/Dmitrij878/Desktop/apks_keys/taskmanager")
 
             val propertiesFilePath = if (isGITHUB_ACTION) {
                 "/tmp/signing.properties"
@@ -46,6 +47,14 @@ android {
                 }
 
                 storePassword = properties["storePassword"] as String?
+            } else if (localKeystore.exists()) {
+                storeFile = localKeystore
+                keyAlias = providers.gradleProperty("signingKeyAlias").orNull
+                keyPassword = providers.gradleProperty("signingKeyPassword").orNull
+                storePassword = providers.gradleProperty("signingStorePassword").orNull
+                if (keyAlias == null || keyPassword == null || storePassword == null) {
+                    println("Local keystore found. Pass -PsigningKeyAlias, -PsigningKeyPassword and -PsigningStorePassword to assembleRelease.")
+                }
             } else {
                 println("Signing properties file not found at $propertiesFilePath")
             }
@@ -75,8 +84,8 @@ android {
         targetSdk = 37
 
         //versioning
-        versionCode = 53
-        versionName = "1.5.4"
+        versionCode = 54
+        versionName = "1.5.5"
         vectorDrawables {
             useSupportLibrary = true
         }

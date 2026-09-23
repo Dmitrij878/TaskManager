@@ -76,11 +76,9 @@ suspend fun updateNetworkStatsOnly() {
 }
 
 fun calculateTopApps(context: Context) {
-    if (!checkUsageStatsPermission(context)) {
-        hasUsagePermission = false
-        return
-    }
-    hasUsagePermission = true
+    // TrafficStats UID-счётчики доступны на части прошивок без Usage Access.
+    // Не прекращаем сбор только потому, что AppOps не подтвердил разрешение.
+    hasUsagePermission = checkUsageStatsPermission(context)
 
     val pm = context.packageManager
     val allApps = pm.getInstalledApplications(PackageManager.GET_META_DATA)
@@ -140,7 +138,7 @@ fun Network(modifier: Modifier = Modifier) {
                 }
             }
 
-            if (!hasUsagePermission) {
+            if (!hasUsagePermission && topTotalApps.isEmpty()) {
                 InfoCard {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
@@ -156,7 +154,9 @@ fun Network(modifier: Modifier = Modifier) {
                         }
                     }
                 }
-            } else {
+            }
+
+            if (hasUsagePermission || topTotalApps.isNotEmpty() || topCurrentApps.isNotEmpty()) {
                 Text(text = "Активность сетевого трафика (Топ-5):", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
                 InfoCard {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
