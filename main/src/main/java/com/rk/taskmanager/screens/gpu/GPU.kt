@@ -191,6 +191,19 @@ fun GPU(modifier: Modifier = Modifier, viewModel: GpuViewModel) {
                         value = gpuInfo?.vulkanApiVersion ?: stringResource(strings.no_data),
                         highlighted = false
                     )
+
+                    // НАШИ НОВЫЕ ХАРАКТЕРИСТИКИ ЧИПА ADRENO
+                    InfoItem(
+                        label = "Рабочая частота видеочипа",
+                        value = gpuInfo?.gpuClock ?: stringResource(strings.no_data),
+                        highlighted = gpuInfo?.gpuClock != "Нет данных"
+                    )
+
+                    InfoItem(
+                        label = "Температура видеочипа",
+                        value = gpuInfo?.gpuTemperature ?: stringResource(strings.no_data),
+                        highlighted = false
+                    )
                 }
             }
         }

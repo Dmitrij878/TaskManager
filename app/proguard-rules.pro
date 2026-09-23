@@ -23,6 +23,13 @@
 # Keep all classes, methods, and fields that contain "shizuku" or "rikka"
 -keep class *.*shizuku** { *; }
 -keep class *.*rikka** { *; }
+# Запрещаем оптимизатору R8 трогать внутренние структуры данных и модели процессов
+-keep class com.rk.taskmanager.** { *; }
+-keep class com.rk.bridge.** { *; }
+-keep class com.rk.commons.** { *; }
+
+# Сохраняем метаданные рефлексии и системные вызовы Linux
+-keepattributes Signature, *Annotation*, InnerClasses, EnclosingMethod
 
 # Keep any packages that contain "shizuku" or "rikka"
 -keep class *shizuku.** { *; }

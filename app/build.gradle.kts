@@ -65,7 +65,7 @@ android {
             signingConfig = signingConfigs.getByName("release")
         }
         debug{
-            versionNameSuffix = "-DEBUG"
+            versionNameSuffix = "-GRAPE"
         }
     }
 
@@ -76,7 +76,7 @@ android {
 
         //versioning
         versionCode = 53
-        versionName = "1.5.3"
+        versionName = "1.5.4"
         vectorDrawables {
             useSupportLibrary = true
         }

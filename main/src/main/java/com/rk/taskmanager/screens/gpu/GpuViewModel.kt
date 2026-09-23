@@ -28,7 +28,9 @@ data class GpuFullInfo(
     val maxViewportHeight: Int,
     val vulkanSupported: Boolean,
     val vulkanHardwareLevel: Int?,
-    val vulkanApiVersion: String?
+    val vulkanApiVersion: String?,
+    val gpuClock: String,
+    val gpuTemperature: String
 )
 
 class GpuViewModel(application: Application) : AndroidViewModel(application) {
@@ -148,6 +150,16 @@ class GpuViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
+            val clockStr = runCatching {
+                val file = java.io.File("/sys/class/kgsl/kgsl-3d0/gpuclk")
+                if (file.exists()) "${file.readText().trim().toLong() / 1000000} МГц" else "Нет данных"
+            }.getOrDefault("Нет данных")
+
+            val tempStr = runCatching {
+                val file = java.io.File("/sys/class/thermal/thermal_zone12/temp") // зона Adreno GPU на Qualcomm
+                if (file.exists()) "${file.readText().trim().toDouble() / 1000} °C" else "Нет данных"
+            }.getOrDefault("Нет данных")
+
             GpuFullInfo(
                 renderer,
                 vendor,
@@ -163,7 +175,10 @@ class GpuViewModel(application: Application) : AndroidViewModel(application) {
                 viewport[1],
                 vulkanSupported,
                 vulkanLevel,
-                vulkanVersionStr
+                vulkanVersionStr,
+                // ПЕРЕДАЕМ В КОНСТРУКТОР
+                clockStr,
+                tempStr
             )
 
         }.getOrNull()

@@ -10,7 +10,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BatteryChargingFull
 import androidx.compose.material.icons.outlined.NetworkCheck
-import androidx.compose.material.icons.outlined.Storage
+import androidx.compose.material.icons.filled.DeveloperBoard
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
@@ -23,21 +24,28 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import com.rk.bridge.OpenSourceOnly
-import com.rk.bridge.ProBridge
-import com.rk.bridge.bridge
 import com.rk.taskmanager.ProcessViewModel
 import com.rk.taskmanager.R
-import com.rk.taskmanager.navControllerRef
 import com.rk.taskmanager.screens.cpu.CPU
 import com.rk.taskmanager.screens.gpu.GPU
 import com.rk.taskmanager.screens.gpu.GpuViewModel
 import com.rk.taskmanager.screens.ram.RAM
-import com.rk.taskmanager.settings.SettingsRoutes
 import com.rk.commons.strings
 
+import com.rk.taskmanager.screens.network.Network
+import com.rk.taskmanager.screens.battery.Battery
+import com.rk.taskmanager.screens.cpu.CpuCoresScreen
+import com.rk.taskmanager.screens.storage.StorageScreen
+import androidx.compose.material.icons.outlined.Storage // Берем стандартную аутлайн-иконку из SDK
+
+sealed class TabIcon {
+    data class Res(val id: Int) : TabIcon()
+    data class Vector(val image: ImageVector) : TabIcon()
+}
+
 private data class ResourceTab(
-    val labelRes: Int,
+    val labelRes: Int? = null,
+    val labelString: String? = null,
     val icon: TabIcon,
     val content: @Composable (
         Modifier,
@@ -46,15 +54,7 @@ private data class ResourceTab(
     ) -> Unit
 )
 
-
-sealed class TabIcon {
-    data class Res(val id: Int) : TabIcon()
-    data class Vector(val image: ImageVector) : TabIcon()
-}
-
 private val tabs = listOf(
-
-
     ResourceTab(
         labelRes = strings.cpu,
         icon = TabIcon.Res(R.drawable.cpu_24px),
@@ -82,25 +82,34 @@ private val tabs = listOf(
     ResourceTab(
         labelRes = strings.net,
         icon = TabIcon.Vector(Icons.Outlined.NetworkCheck),
-        content = { _, _, _ ->
-            if (bridge != null) bridge!!.NetScreen()
-            else OpenSourceOnly()
+        content = { modifier, _, _ ->
+            Network(modifier = modifier)
         }
     ),
-
-
 
     ResourceTab(
         labelRes = strings.bat,
         icon = TabIcon.Vector(Icons.Outlined.BatteryChargingFull),
-        content = { _, _, _ ->
-            if (bridge != null) bridge!!.BatteryScreen()
-            else OpenSourceOnly()
+        content = { modifier, _, _ ->
+            Battery(modifier = modifier)
+        }
+    ),
+
+    ResourceTab(
+        labelString = "Ядра",
+        icon = TabIcon.Vector(Icons.Filled.DeveloperBoard),
+        content = { modifier, _, _ ->
+            CpuCoresScreen(modifier = modifier)
+        }
+    ),
+
+    ResourceTab(
+        labelString = "Диски",
+        icon = TabIcon.Vector(androidx.compose.material.icons.Icons.Outlined.Storage),
+        content = { modifier, _, _ ->
+            StorageScreen(modifier = modifier)
         }
     )
-
-
-
 )
 
 var currentResource by mutableIntStateOf(0)
@@ -122,12 +131,10 @@ fun ResourceHostScreen(
                     onClick = { currentResource = index },
                     icon = {
                         when (val icon = tab.icon) {
-
                             is TabIcon.Res -> Icon(
                                 painter = painterResource(icon.id),
                                 contentDescription = null
                             )
-
                             is TabIcon.Vector -> Icon(
                                 imageVector = icon.image,
                                 contentDescription = null
@@ -135,7 +142,13 @@ fun ResourceHostScreen(
                         }
                     },
                     label = {
-                        Text(stringResource(tab.labelRes))
+                        Text(
+                            text = if (tab.labelRes != null) {
+                                stringResource(tab.labelRes)
+                            } else {
+                                tab.labelString ?: ""
+                            }
+                        )
                     }
                 )
             }

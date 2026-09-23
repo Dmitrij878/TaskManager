@@ -17,9 +17,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.DropdownMenu
@@ -30,9 +31,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.SearchBar
 import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.*
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,9 +42,7 @@ import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.rk.taskmanager.ProcessViewModel
-import com.rk.taskmanager.screens.Filter
 import com.rk.taskmanager.screens.ProcessItem
-import com.rk.taskmanager.screens.Sort
 import com.rk.taskmanager.screens.showFilter
 import com.rk.taskmanager.screens.showSort
 import com.rk.commons.strings
@@ -66,8 +63,6 @@ fun ProcessSearchBar(
         modifier.fillMaxWidth().semantics { isTraversalGroup = true }
     ) {
         var query by rememberSaveable { mutableStateOf("") }
-
-        // Collect search results as state
         val searchResults by viewModel.searchResults.collectAsState()
 
         SearchBar(
@@ -89,7 +84,6 @@ fun ProcessSearchBar(
                         var showMoreMenu by remember { mutableStateOf(false) }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             IconButton(onClick = {
-                                //showFilter.value = true
                                 showMoreMenu = true
                             }) {
                                 Icon(imageVector = Icons.Outlined.MoreVert, null)
@@ -99,26 +93,23 @@ fun ProcessSearchBar(
                         DropdownMenu(expanded = showMoreMenu, onDismissRequest = {
                             showMoreMenu = false
                         }) {
-                            DropdownMenuItem(text = {
-                                Text(stringResource(strings.filters))
-                            }, onClick = {
-                                showMoreMenu = false
-                                showFilter.value = true
-                            }, leadingIcon = {
-                                Icon(imageVector = Filter, null)
-                            })
+                            DropdownMenuItem(
+                                text = { Text(stringResource(strings.filters)) },
+                                onClick = {
+                                    showMoreMenu = false
+                                    showFilter.value = true
+                                },
+                                leadingIcon = { Icon(imageVector = Icons.Filled.FilterList, null) }
+                            )
 
-                            DropdownMenuItem(text = {
-                                Text(stringResource(strings.sort))
-                            }, onClick = {
-                                showMoreMenu = false
-                                showSort.value = true
-                            }, leadingIcon = {
-                                Icon(imageVector = Sort, null)
-                            })
-
-
-
+                            DropdownMenuItem(
+                                text = { Text(stringResource(strings.sort)) },
+                                onClick = {
+                                    showMoreMenu = false
+                                    showSort.value = true
+                                },
+                                leadingIcon = { Icon(imageVector = Icons.Filled.Sort, null) }
+                            )
                         }
                     },
                     leadingIcon = {
@@ -127,7 +118,8 @@ fun ProcessSearchBar(
                             transitionSpec = {
                                 fadeIn(animationSpec = tween(300)) + scaleIn(tween(300)) + rotateIn() with
                                         fadeOut(tween(300)) + scaleOut(tween(300)) + rotateOut()
-                            }
+                            },
+                            label = "AnimatedSearchIcon"
                         ) { targetExpanded ->
                             IconButton(onClick = {
                                 expanded = expanded.not()
@@ -151,17 +143,16 @@ fun ProcessSearchBar(
             expanded = expanded,
             onExpandedChange = { expanded = it },
         ) {
-            // Use LazyColumn for virtual scrolling - only renders visible items
             LazyColumn {
                 items(
                     items = searchResults,
-                    key = { it.proc.pid }  // Use PID as stable key
+                    key = { it.proc.pid }
                 ) { proc ->
                     ProcessItem(
                         modifier = Modifier,
                         uiProc = proc,
                         navController = navController,
-                        viewModel
+                        viewModel = viewModel
                     )
                 }
             }
